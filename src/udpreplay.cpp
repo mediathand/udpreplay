@@ -13,6 +13,44 @@
 
 #define NANOSECONDS_PER_SECOND 1000000000L
 
+/* scale factors */
+#define TIMING_GIGA (1000000000)
+#define TIMING_NANO (1e-9)
+
+/* timespec difference (monotonic) right - left */
+void timespec_monodiff_rml(struct timespec *ts_out,
+                                  const struct timespec *ts_in) {
+  /* out = in - out,
+     where in > out
+   */
+  ts_out->tv_sec = ts_in->tv_sec - ts_out->tv_sec;
+  ts_out->tv_nsec = ts_in->tv_nsec - ts_out->tv_nsec;
+  if (ts_out->tv_sec < 0) {
+    ts_out->tv_sec = 0;
+    ts_out->tv_nsec = 0;
+  } else if (ts_out->tv_nsec < 0) {
+    if (ts_out->tv_sec == 0) {
+      ts_out->tv_sec = 0;
+      ts_out->tv_nsec = 0;
+    } else {
+      ts_out->tv_sec = ts_out->tv_sec - 1;
+      ts_out->tv_nsec = ts_out->tv_nsec + TIMING_GIGA;
+    }
+  } else {
+  }
+}
+
+/* emulate clock_nanosleep for CLOCK_MONOTONIC and TIMER_ABSTIME */
+int clock_nanosleep_abstime(const struct timespec *req) {
+  struct timespec ts_delta;
+  int retval = clock_gettime(CLOCK_MONOTONIC, &ts_delta);
+  if (retval == 0) {
+    timespec_monodiff_rml(&ts_delta, req);
+    retval = nanosleep(&ts_delta, NULL);
+  }
+  return retval;
+}
+
 int main(int argc, char *argv[]) {
 
   int ifindex = 0;
@@ -215,8 +253,8 @@ int main(int argc, char *argv[]) {
 
       if (deadline.tv_sec > now.tv_sec ||
           (deadline.tv_sec == now.tv_sec && deadline.tv_nsec > now.tv_nsec)) {
-        if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline,
-                            nullptr) == -1) {
+        if (clock_nanosleep_abstime(&deadline)) {
+        //if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, nullptr) == -1) {
           std::cerr << "clock_nanosleep: " << strerror(errno) << std::endl;
           return 1;
         }
